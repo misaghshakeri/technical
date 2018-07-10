@@ -6,6 +6,8 @@ from numpy.core.records import ndarray
 from pandas import Series, DataFrame
 from math import log
 
+#import numpy as np
+
 
 def aroon(dataframe, period=25, field='close', colum_prefix="aroon") -> DataFrame:
     from pyti.aroon import aroon_up as up
@@ -551,3 +553,85 @@ def madrid_sqz(self, datafame, length=34, src='close', ref=13, sqzLen=5):
 
     # print(df[['sqz_cma_c', 'sqz_rma_c', 'sqz_sma_c']])
     return df['sqz_cma_c'], df['sqz_rma_c'], df['sqz_sma_c']
+
+
+def super_trend(df, period=14, multiplier=3):
+    """
+    Author: Misagh
+    :param datafame:
+    :param period: default 14
+    :param multiplier: default 3
+    :return: df['st'], df['stx']
+
+    SuperTrend Algorithm :
+
+    BASIC UPPERBAND = (HIGH + LOW) / 2 + Multiplier * ATR
+    BASIC LOWERBAND = (HIGH + LOW) / 2 - Multiplier * ATR
+
+    FINAL UPPERBAND = IF( (Current BASICUPPERBAND < Previous FINAL UPPERBAND) or (Previous Close > Previous FINAL UPPERBAND) )
+                        THEN (Current BASIC UPPERBAND)
+                        ELSE Previous FINALUPPERBAND
+                        )
+    FINAL LOWERBAND = IF( (Current BASIC LOWERBAND > Previous FINAL LOWERBAND) or (Previous Close < Previous FINAL LOWERBAND) )
+                        THEN (Current BASIC LOWERBAND)
+                        ELSE Previous FINAL LOWERBAND)
+
+    SUPERTREND = IF( (Previous SUPERTREND = Previous FINAL UPPERBAND) and (Current Close <= Current FINAL UPPERBAND)) THEN
+                    Current FINAL UPPERBAND
+                    ELSE
+                    IF((Previous SUPERTREND = Previous FINAL UPPERBAND) and (Current Close > Current FINAL UPPERBAND)) THEN
+                        Current FINAL LOWERBAND
+                    ELSE
+                        IF((Previous SUPERTREND = Previous FINAL LOWERBAND) and (Current Close >= Current FINAL LOWERBAND)) THEN
+                            Current FINAL LOWERBAND
+                        ELSE
+                            IF((Previous SUPERTREND = Previous FINAL LOWERBAND) and (Current Close < Current FINAL LOWERBAND)) THEN
+                                Current FINAL UPPERBAND
+    """
+
+    df['atr'] = atr(df, period)
+
+    # Compute basic upper and lower bands
+    df['basic_ub'] = (df['high'] + df['low']) / 2 + multiplier * df["atr"]
+    df['basic_lb'] = (df['high'] + df['low']) / 2 - multiplier * df["atr"]
+
+    # Compute final upper and lower bands
+    df['final_ub'] = 0.00
+    df['final_lb'] = 0.00
+    for i in range(period, len(df)):
+        if df['basic_ub'].iat[i] < df['final_ub'].iat[i - 1] or df['close'].iat[i - 1] > df['final_ub'].iat[i - 1]:
+            df['final_ub'].iat[i] = df['basic_ub'].iat[i]
+        else:
+            df['final_ub'].iat[i - 1]
+        if df['basic_lb'].iat[i] > df['final_lb'].iat[i - 1] or df['close'].iat[i - 1] < df['final_lb'].iat[i - 1]:
+            df['final_lb'].iat[i] = df['basic_lb'].iat[i]
+        else:
+            df['final_lb'].iat[i - 1]
+
+    # Set the Supertrend value
+    df['st'] = 0.00
+
+    for i in range(period, len(df)):
+        if df['st'].iat[i - 1] == df['final_ub'].iat[i - 1] and df['close'].iat[i] <= df['final_ub'].iat[i]:
+            df['st'].iat[i] = df['final_ub'].iat[i]
+        else:
+            if df['st'].iat[i - 1] == df['final_ub'].iat[i - 1] and df['close'].iat[i] > df['final_ub'].iat[i]:
+                df['final_lb'].iat[i]
+            else:
+                if df['st'].iat[i - 1] == df['final_lb'].iat[i - 1] and df['close'].iat[i] >= df['final_lb'].iat[i]:
+                    df['final_lb'].iat[i]
+                else:
+                    if df['st'].iat[i - 1] == df['final_lb'].iat[i - 1] and df['close'].iat[i] < df['final_lb'].iat[i]:
+                        df['final_ub'].iat[i]
+                    else:
+                        0.00
+
+    # Mark the trend direction up/down
+    #df['stx'] = np.where((df['st'] > 0.00), np.where((df['close'] < df['st']), 'down',  'up'), np.NaN)
+
+    # Remove basic and final bands from the columns
+    df.drop(['basic_ub', 'basic_lb', 'final_ub', 'final_lb'], inplace=True, axis=1)
+
+    df.fillna(0, inplace=True)
+
+    return df['st'] #, df['stx']
